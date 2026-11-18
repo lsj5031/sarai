@@ -18,6 +18,7 @@ from ..tomlfile import TomlFile
 from .base import Context, restore_key, restore_ready
 
 CATALOG = "magpie-models.json"
+LEVELS = ("minimal", "low", "medium", "high", "xhigh", "max")
 
 
 def directory() -> Path:
@@ -38,14 +39,23 @@ def provider_table(defn: Definition) -> dict:
     }
 
 
+def supported_efforts(m: Model) -> list[str]:
+    return [e for e in LEVELS if e in m.efforts]
+
+
+def default_effort(m: Model) -> str:
+    efforts = supported_efforts(m)
+    return m.default_effort if m.default_effort in efforts else (efforts[0] if efforts else "")
+
+
 def catalog_entry(defn: Definition, m: Model, priority: int) -> dict:
-    efforts = [e for e in ("minimal", "low", "medium", "high", "xhigh", "max") if e in m.efforts]
+    efforts = supported_efforts(m)
     return {
         "slug": m.id,
         "display_name": m.name or m.id,
         "description": (m.name or m.id) + " via " + defn.provider,
         "base_instructions": assets.CODEX_PROMPT,
-        "default_reasoning_level": m.default_effort or (efforts[0] if efforts else None),
+        "default_reasoning_level": default_effort(m) or None,
         "supported_reasoning_levels": [{"effort": e, "description": e} for e in efforts],
         "shell_type": "unified_exec",
         "visibility": "list",
@@ -92,12 +102,15 @@ def apply(ctx: Context) -> None:
     m = ctx.model
     if m is None:
         return
+    effort = default_effort(m)
     d = directory()
     config = d / "config.toml"
     catalog = d / CATALOG
     table_path = ("model_providers", ctx.provider)
+    detail = (f"[model_providers.{ctx.provider}], model_provider, model, model_catalog_json; "
+              + (f"model_reasoning_effort = {effort}" if effort else "clear model_reasoning_effort"))
     if ctx.dry_run:
-        ctx.note(str(config), "would set", "[model_providers." + ctx.provider + "], model_provider, model")
+        ctx.note(str(config), "would set", detail)
         ctx.note(str(catalog), "would write", f"{len(ctx.defn.models)} entries")
         return
     d.mkdir(parents=True, exist_ok=True)
@@ -105,14 +118,18 @@ def apply(ctx: Context) -> None:
     f = TomlFile(config, create=True)
     existing = f.get(*table_path)
     ctx.stash.remember(ctx.agent, "provider_table", existing)
-    for key in ("model_provider", "model", "model_catalog_json"):
+    for key in ("model_provider", "model", "model_catalog_json", "model_reasoning_effort"):
         ctx.stash.remember(ctx.agent, key, f.get(key))
     f.set(provider_table(ctx.defn), *table_path)
     f.set(ctx.provider, "model_provider")
     f.set(m.id, "model")
     f.set(CATALOG, "model_catalog_json")
+    if effort:
+        f.set(effort, "model_reasoning_effort")
+    else:
+        f.delete("model_reasoning_effort")
     if f.save():
-        ctx.note(str(config), "set", f"[model_providers.{ctx.provider}], model_provider, model")
+        ctx.note(str(config), "set", detail)
     if not catalog.exists():
         ctx.stash.remember(ctx.agent, "catalog_absent", True)
     if write_catalog(ctx.defn, catalog):
@@ -127,7 +144,7 @@ def restore(ctx: Context) -> None:
     if config.exists():
         f = TomlFile(config)
         restore_key(f, ctx, "provider_table", "model_providers", ctx.provider)
-        for key in ("model_provider", "model", "model_catalog_json"):
+        for key in ("model_provider", "model", "model_catalog_json", "model_reasoning_effort"):
             restore_key(f, ctx, key, key)
         if f.save():
             ctx.note(str(config), "restored")
@@ -151,4 +168,4 @@ def restore(ctx: Context) -> None:
             except (json.JSONDecodeError, OSError):
                 pass
     ctx.stash.forget(ctx.agent, "applied", "provider_table", "model_provider", "model",
-                     "model_catalog_json", "catalog_absent")
+                     "model_catalog_json", "model_reasoning_effort", "catalog_absent")

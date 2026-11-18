@@ -36,11 +36,16 @@ both `/v1/responses` and `/v1/chat/completions`.
 |---|---|---|
 | `pi` (aliases `omo`, `mu`, `stepcode`, `prime-agent`) | `~/.pi/agent/settings.json`, `models.json` | `providers.<id>` block + model catalog; `defaultProvider`/`defaultModel`, `enabledModels`, thinking level |
 | `droid` | `~/.factory/settings.json` | BYOK `customModels` entries + `sessionDefaultSettings.model` |
-| `codex` | `~/.codex/config.toml`, `magpie-models.json` | `[model_providers.<id>]`, `model_provider`, `model`, `model_catalog_json` |
+| `codex` | `~/.codex/config.toml`, `magpie-models.json` | `[model_providers.<id>]`, `model_provider`, `model`, `model_reasoning_effort` (from `default_effort`), `model_catalog_json` |
 | `opencode` (aliases `mimocode`, `deveco`) | `~/.config/opencode/opencode.json(c)` | v1 `provider.<id>` or v2 `providers.<id>` block; `model`, `small_model` |
 
 The aliases only reuse the shape; their real directories come from the
 registry (`PI_DIRS`, `opencode.directory()`).
+
+Codex uses the selected model's `default_effort` if it is among the model's
+supported levels. Otherwise it uses the lowest supported level, or clears
+`model_reasoning_effort` if there are none. `--restore` puts the original
+setting back.
 
 ## Proof with the real CLIs
 

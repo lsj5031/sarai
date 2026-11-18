@@ -1,11 +1,16 @@
+import json
 import os
 import tempfile
 from pathlib import Path
 
+from injector import core
 from injector.__main__ import main
 from injector.definition import load as load_definition
 
 home = Path(tempfile.mkdtemp())
+core.STATE = home / ".state"
+os.environ["CODEX_HOME"] = str(home / ".codex")
+os.environ["FACTORY_HOME_OVERRIDE"] = str(home)
 os.environ["USERPROFILE"] = str(home)
 os.environ["HOME"] = str(home)
 os.environ.pop("OPENCODE_CONFIG_DIR", None)
@@ -60,6 +65,7 @@ assert b"# my config" in codex_raw
 assert b'model_provider = "mygw"' in codex_raw
 assert b"[model_providers.mygw]" in codex_raw
 assert b"\r\n" in codex_raw and b"\n" not in codex_raw.replace(b"\r\n", b"")
+assert b'model_reasoning_effort = "medium"' in codex_raw
 assert (codex / "magpie-models.json").exists()
 
 oc_cfg = (oc / "opencode.json").read_text(encoding="utf-8")
@@ -98,6 +104,7 @@ assert b'model = "user-model"' in codex_raw
 assert b'model_provider = "openai"' in codex_raw
 assert b'name = "old-name"' in codex_raw
 assert b'wire_api = "chat"' in codex_raw
+assert b"model_reasoning_effort" not in codex_raw
 assert not (codex / "magpie-models.json").exists()
 
 oc_cfg = (oc / "opencode.json").read_text(encoding="utf-8")
@@ -107,6 +114,25 @@ assert '"model": "old/m"' in oc_cfg
 restored = {p: p.read_bytes() for p in files if p.exists()}
 assert main(["-d", "defs/example.toml", "--restore"]) == 0
 assert all(p.read_bytes() == s for p, s in restored.items()), "second restore changed files"
+
+# Switching models must not carry an injected effort to one with no levels.
+config = codex / "config.toml"
+config.write_bytes(b'model_reasoning_effort = "high"\r\n' + config.read_bytes())
+custom = home / "switch.json"
+definition = {"gateway": {"base_url": "http://localhost/v1"}, "models": [
+    {"id": "reasoner", "efforts": ["medium", "low"], "default_effort": "unknown"},
+    {"id": "plain"}], "agents": {"codex": "reasoner"}}
+custom.write_text(json.dumps(definition), encoding="utf-8")
+assert main(["-d", str(custom)]) == 0
+assert b'model_reasoning_effort = "low"' in config.read_bytes()
+catalog = json.loads((codex / "magpie-models.json").read_bytes())["models"]
+assert [entry["default_reasoning_level"] for entry in catalog] == ["low", None]
+definition["agents"]["codex"] = "plain"
+custom.write_text(json.dumps(definition), encoding="utf-8")
+assert main(["-d", str(custom)]) == 0
+assert b"model_reasoning_effort" not in config.read_bytes()
+assert main(["-d", str(custom), "--restore"]) == 0
+assert b'model_reasoning_effort = "high"' in config.read_bytes()
 
 # A dry run must not create config directories either.
 fresh = Path(tempfile.mkdtemp())
