@@ -21,8 +21,7 @@ try {
         $example = git show HEAD:defs/example.toml
         if ($LASTEXITCODE) { throw 'Cannot read committed example definition' }
         [IO.File]::WriteAllLines("$stage/defs/example.toml", [string[]]$example)
-        Copy-Item README.md, LICENSE, THIRD_PARTY_NOTICES.md $stage
-        Copy-Item licenses "$stage/licenses" -Recurse
+        Copy-Item README.md, LICENSE $stage
         $null = New-Item dist -ItemType Directory -Force
         $zip = "dist/sarai-$target.zip"
         Compress-Archive -Path "$stage/*" -DestinationPath $zip -Force

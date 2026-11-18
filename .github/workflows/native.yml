@@ -37,10 +37,9 @@ jobs:
       - name: Package portable CLI
         run: |
           mkdir -p "$RUNNER_TEMP/package/defs"
-          cp target/release/sarai README.md LICENSE THIRD_PARTY_NOTICES.md "$RUNNER_TEMP/package/"
-          cp -R licenses "$RUNNER_TEMP/package/"
+          cp target/release/sarai README.md LICENSE "$RUNNER_TEMP/package/"
           cp defs/example.toml "$RUNNER_TEMP/package/defs/"
-          tar -C "$RUNNER_TEMP/package" -czf "sarai-$TARGET.tar.gz" sarai README.md LICENSE THIRD_PARTY_NOTICES.md licenses defs
+          tar -C "$RUNNER_TEMP/package" -czf "sarai-$TARGET.tar.gz" sarai README.md LICENSE defs
       - name: Test extracted executable
         run: |
           mkdir "$RUNNER_TEMP/extracted"

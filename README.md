@@ -83,7 +83,7 @@ provider instead of Chat Completions.
 |---|---|---|
 | `pi` (aliases `omo`, `mu`, `stepcode`, `prime-agent`) | `~/.pi/agent/settings.json`, `models.json` in each agent's directory | `providers.<id>` block + model catalog; `defaultProvider`/`defaultModel`, `enabledModels`, thinking level |
 | `droid` | `~/.factory/settings.json` | BYOK `customModels` entries + `sessionDefaultSettings.model` |
-| `codex` | `$CODEX_HOME/config.toml` (default `~/.codex/config.toml`), `sarai-models.json` | `[model_providers.<id>]`, `model_provider`, `model`, `model_reasoning_effort` (from `default_effort`), `model_catalog_json` |
+| `codex` | `$CODEX_HOME/config.toml` (default `~/.codex/config.toml`) | `[model_providers.<id>]`, `model_provider`, `model`, `model_reasoning_effort` (from `default_effort`) |
 | `opencode` (aliases `mimocode`, `deveco`) | `$XDG_CONFIG_HOME/<id>/<id>.json(c)` | v1 `provider.<id>` or v2 `providers.<id>` block; `model`, `small_model` |
 
 Aliases reuse the driver but target their own config directories.
@@ -92,6 +92,10 @@ Codex uses the selected model's `default_effort` if it is among the model's
 supported levels. Otherwise it uses the lowest supported level, or clears
 `model_reasoning_effort` if there are none. `--restore` puts the original
 setting back.
+
+Codex supplies model metadata and instructions from its own catalog; Sarai
+does not write a catalog or a prompt. A model the installed Codex does not
+know uses fallback metadata and prints a warning, so keep Codex updated.
 
 ## Restore and dry runs
 
@@ -156,9 +160,7 @@ The implementation lives in `src/`:
 - `jsonfile.rs` — JSONC editor. Parses just enough to find exact value spans,
   then splices text, so comments, key order, indentation and CRLF survive.
 - `json_agents.rs` — the Pi, Droid and OpenCode families.
-- `codex.rs` — Codex's TOML via `toml_edit`, plus its model catalog.
-- `assets/codex_prompt.md` — the instruction text embedded in each catalog
-  entry.
+- `codex.rs` — Codex's TOML via `toml_edit`.
 
 Adding a Pi- or OpenCode-family alias is a registration line plus its directory
 default; a new config format gets a small module and a dispatch arm.
@@ -169,9 +171,6 @@ default; a new config format gets a small module and a dispatch arm.
   and protocol fields, mu/prime's gateway keys) are not ported yet.
 - OpenCode v2 migration is detected from `providers` in the file or
   `opencode_version = "2"` in that agent's table, not by probing the binary.
-- The Codex catalog carries Codex's own bundled instruction prompt
-  (`assets/codex_prompt.md`, originally openai/codex Apache-2.0) because Codex
-  rejects entries without it.
 - Comments inside a block Sarai replaces (a provider block, the `customModels`
   array) are not carried over; comments elsewhere, key order, indentation and
   CRLF line endings are preserved.
@@ -198,11 +197,8 @@ config, put a provider block in, set a model field.
 
 Config shapes and preservation rules were learned from
 [`yetone/magpie`](https://github.com/yetone/magpie) (MIT). No magpie code is
-vendored except the Codex instruction text noted above, which originates in
-[`openai/codex`](https://github.com/openai/codex) (Apache-2.0).
+vendored.
 
 ## License
 
-Sarai is released under the [MIT license](LICENSE). The Codex instruction
-prompt in `assets/codex_prompt.md` remains Apache-2.0; see
-[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+Sarai is released under the [MIT license](LICENSE).

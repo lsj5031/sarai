@@ -4,10 +4,9 @@ use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 use toml_edit::{DocumentMut, Item, Table, TableLike};
 
-use crate::{Context, Definition, Model, write_atomic};
+use crate::{Context, Model, write_atomic};
 
-const CATALOG: &str = "sarai-models.json";
-const PROMPT: &str = include_str!("../assets/codex_prompt.md");
+const LEGACY_CATALOG: &str = "sarai-models.json";
 const LEVELS: [&str; 6] = ["minimal", "low", "medium", "high", "xhigh", "max"];
 const KEYS: [&str; 4] = [
     "model_provider",
@@ -154,49 +153,6 @@ fn default_effort<'a>(m: &'a Model, levels: &[&'static str]) -> Option<&'a str> 
     }
 }
 
-fn entry(defn: &Definition, m: &Model, priority: usize) -> Value {
-    let levels = efforts(m);
-    let name = if m.name.is_empty() { &m.id } else { &m.name };
-    json!({
-        "slug": m.id, "display_name": name, "description": format!("{name} via {}", defn.provider),
-        "base_instructions": PROMPT.replace("\r\n", "\n"),
-        "default_reasoning_level": default_effort(m, &levels),
-        "supported_reasoning_levels": levels.iter().map(|e| json!({"effort": e, "description": e})).collect::<Vec<_>>(),
-        "shell_type": "unified_exec", "visibility": "list", "supported_in_api": true, "priority": priority,
-        "support_verbosity": false, "apply_patch_tool_type": "freeform",
-        "truncation_policy": {"mode": "tokens", "limit": 10000}, "experimental_supported_tools": [],
-        "input_modalities": if m.images { vec!["text", "image"] } else { vec!["text"] },
-        "context_window": (m.context != 0).then_some(m.context), "effective_context_window_percent": 95,
-        "service_tiers": [], "supports_search_tool": true, "supports_parallel_tool_calls": true,
-        "supports_reasoning_summaries": !levels.is_empty(),
-    })
-}
-
-fn kept_catalog(bytes: &[u8], defn: &Definition) -> Result<Vec<Value>> {
-    let mut old: Value =
-        serde_json::from_slice(bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes))?;
-    if old.is_object() {
-        old = old["models"].take();
-    }
-    let Value::Array(mut entries) = old else {
-        return Ok(Vec::new());
-    };
-    entries.retain(|e| {
-        e.is_object()
-            && !defn
-                .models
-                .iter()
-                .any(|m| e["slug"].as_str() == Some(m.id.as_str()))
-    });
-    Ok(entries)
-}
-
-fn catalog_bytes(entries: Vec<Value>) -> Result<Vec<u8>> {
-    let mut bytes = serde_json::to_vec_pretty(&json!({ "models": entries }))?;
-    bytes.push(b'\n');
-    Ok(bytes)
-}
-
 pub fn run(ctx: &mut Context, restore: bool) -> Result<()> {
     let dir = env::var("CODEX_HOME")
         .ok()
@@ -204,7 +160,7 @@ pub fn run(ctx: &mut Context, restore: bool) -> Result<()> {
         .map(|s| crate::expand(&s))
         .unwrap_or_else(|| crate::home().join(".codex"));
     let config = dir.join("config.toml");
-    let catalog = dir.join(CATALOG);
+    let legacy_catalog = dir.join(LEGACY_CATALOG);
     let defn = ctx.defn;
     let provider = defn.provider.as_str();
     if restore {
@@ -225,14 +181,9 @@ pub fn run(ctx: &mut Context, restore: bool) -> Result<()> {
                 ctx.note(&config, "restored", "");
             }
         }
-        if catalog.exists() {
-            if ctx.get("catalog_absent") == Some(Value::Bool(true)) {
-                fs::remove_file(&catalog)?;
-                ctx.note(&catalog, "removed", "");
-            } else if let Ok(kept) = kept_catalog(&fs::read(&catalog)?, defn) {
-                write_atomic(&catalog, &catalog_bytes(kept)?)?;
-                ctx.note(&catalog, "restored", "");
-            }
+        if legacy_catalog.exists() && ctx.get("catalog_absent") == Some(Value::Bool(true)) {
+            fs::remove_file(&legacy_catalog)?;
+            ctx.note(&legacy_catalog, "removed", "");
         }
         return ctx.forget(&[
             "applied",
@@ -248,15 +199,13 @@ pub fn run(ctx: &mut Context, restore: bool) -> Result<()> {
     let m = ctx.model().clone();
     let effort = default_effort(&m, &efforts(&m));
     let detail = format!(
-        "[model_providers.{provider}], model_provider, model, model_catalog_json; {}",
+        "[model_providers.{provider}], model_provider, model; {}",
         effort
             .map(|s| format!("model_reasoning_effort = {s}"))
             .unwrap_or_else(|| "clear model_reasoning_effort".into())
     );
-    let count = format!("{} entries", defn.models.len());
     if ctx.dry_run {
         ctx.note(&config, "would set", &detail);
-        ctx.note(&catalog, "would write", &count);
         return Ok(());
     }
     fs::create_dir_all(&dir)?;
@@ -265,6 +214,14 @@ pub fn run(ctx: &mut Context, restore: bool) -> Result<()> {
     let old_provider = original
         .get("model_providers")
         .and_then(|v| v.get(provider));
+    let remove_legacy = original
+        .get("model_catalog_json")
+        .and_then(toml::Value::as_str)
+        .is_some_and(|s| {
+            s == LEGACY_CATALOG
+                || s.ends_with(&format!("/{LEGACY_CATALOG}"))
+                || s.ends_with(&format!("\\{LEGACY_CATALOG}"))
+        });
     ctx.mark()?;
     ctx.remember("provider_table", serde_json::to_value(old_provider)?)?;
     for key in KEYS {
@@ -278,34 +235,22 @@ pub fn run(ctx: &mut Context, restore: bool) -> Result<()> {
             "http_headers": { "x-openai-actor-authorization": provider }
         }),
     )?;
-    for (k, v) in
-        KEYS.into_iter()
-            .zip([json!(provider), json!(m.id), json!(CATALOG), json!(effort)])
-    {
+    for (k, v) in [
+        ("model_provider", json!(provider)),
+        ("model", json!(m.id)),
+        ("model_reasoning_effort", json!(effort)),
+    ] {
         set(f.doc.as_table_mut(), k, &v)?;
+    }
+    if remove_legacy {
+        set(f.doc.as_table_mut(), "model_catalog_json", &Value::Null)?;
     }
     if f.save(&config)? {
         ctx.note(&config, "set", &detail);
     }
-    let old = match fs::read(&catalog) {
-        Ok(bytes) => bytes,
-        Err(e) if e.kind() == ErrorKind::NotFound => {
-            ctx.remember("catalog_absent", json!(true))?;
-            Vec::new()
-        }
-        Err(e) => return Err(e.into()),
-    };
-    let mut entries = kept_catalog(&old, defn).unwrap_or_default();
-    entries.extend(
-        defn.models
-            .iter()
-            .enumerate()
-            .map(|(i, m)| entry(defn, m, i + 1)),
-    );
-    let bytes = catalog_bytes(entries)?;
-    if old.strip_prefix(b"\xef\xbb\xbf").unwrap_or(&old) != bytes.as_slice() {
-        write_atomic(&catalog, &bytes)?;
-        ctx.note(&catalog, "wrote", &count);
+    if remove_legacy && legacy_catalog.exists() {
+        fs::remove_file(&legacy_catalog)?;
+        ctx.note(&legacy_catalog, "removed", "legacy catalog");
     }
     Ok(())
 }

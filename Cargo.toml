@@ -1,6 +1,6 @@
 [package]
 name = "sarai"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "Point coding agents at your own provider and models by editing their config files."
 repository = "https://github.com/lsj5031/sarai"

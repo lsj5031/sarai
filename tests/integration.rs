@@ -3,7 +3,7 @@
 //! Each test runs the CLI in its own temporary home, so a real agent
 //! installation is never touched.
 
-use serde_json::{Value, json};
+use serde_json::json;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -98,13 +98,12 @@ fn seeded() -> Sandbox {
     s
 }
 
-fn files(s: &Sandbox) -> [PathBuf; 6] {
+fn files(s: &Sandbox) -> [PathBuf; 5] {
     [
         s.path(".pi/agent/settings.json"),
         s.path(".pi/agent/models.json"),
         s.path(".factory/settings.json"),
         s.path(".codex/config.toml"),
-        s.path(".codex/sarai-models.json"),
         s.path(".config/opencode/opencode.json"),
     ]
 }
@@ -169,8 +168,12 @@ fn apply_is_surgical_and_idempotent() {
         "config gained bare LF line endings"
     );
     assert!(
-        s.path(".codex/sarai-models.json").exists(),
-        "codex catalog missing"
+        !codex.contains("model_catalog_json"),
+        "codex config still references a catalog"
+    );
+    assert!(
+        !s.path(".codex/sarai-models.json").exists(),
+        "codex catalog should not be written"
     );
 
     let opencode = read(&s.path(".config/opencode/opencode.json"));
@@ -223,11 +226,6 @@ fn restore_puts_originals_back() {
         !codex.contains("model_reasoning_effort"),
         "effort was not cleared:\n{codex}"
     );
-    assert!(
-        !s.path(".codex/sarai-models.json").exists(),
-        "catalog was not removed"
-    );
-
     let opencode = read(&s.path(".config/opencode/opencode.json"));
     has(&opencode, "\"model\": \"old/m\"", "opencode config");
 
@@ -279,16 +277,6 @@ fn switching_models_updates_effort_and_restores_it() {
         "codex effort",
     );
 
-    let catalog: Value =
-        serde_json::from_slice(&read_bytes(&s.path(".codex/sarai-models.json"))).unwrap();
-    let levels: Vec<Value> = catalog["models"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|m| m["default_reasoning_level"].clone())
-        .collect();
-    assert_eq!(levels, vec![json!("low"), Value::Null]);
-
     // Switching to a model with no levels must clear the injected effort.
     definition["agents"]["codex"] = json!("plain");
     write(&custom, &definition.to_string());
@@ -306,7 +294,30 @@ fn switching_models_updates_effort_and_restores_it() {
         "model_reasoning_effort = \"high\"",
         "restored effort",
     );
-    assert!(!s.path(".codex/sarai-models.json").exists());
+}
+
+#[test]
+fn codex_legacy_catalog_is_removed() {
+    let s = Sandbox::new();
+    let codex = s.path(".codex");
+    fs::create_dir_all(&codex).unwrap();
+    write(
+        &codex.join("config.toml"),
+        "model_catalog_json = \"sarai-models.json\"\n",
+    );
+    write(&codex.join("sarai-models.json"), "{\"models\":[]}\n");
+
+    s.run_ok(&["-d", DEF, "-a", "codex"]);
+
+    let config = read(&codex.join("config.toml"));
+    assert!(
+        !config.contains("model_catalog_json"),
+        "legacy catalog reference was kept:\n{config}"
+    );
+    assert!(
+        !codex.join("sarai-models.json").exists(),
+        "legacy catalog file was kept"
+    );
 }
 
 #[test]
