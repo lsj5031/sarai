@@ -13,7 +13,7 @@ from pathlib import Path
 from ..core import expand, merge_preserve
 from ..definition import Definition, Model
 from ..textjson import JsonFile
-from .base import Context
+from .base import Context, restore_key, restore_ready
 
 LEAVES = ("defaultProvider", "defaultModel", "defaultThinkingLevel", "enabledModels")
 
@@ -69,33 +69,31 @@ def _wanted(ref: str, pats: list) -> bool:
     return False
 
 
-def apply(ctx: Context, directory: str, *, all_models: bool = True) -> None:
+def apply(ctx: Context, directory: str) -> None:
     m = ctx.model
     if m is None:
         return
     settings, models_path = paths(directory)
-    models_path.parent.mkdir(parents=True, exist_ok=True)
-
     mf = JsonFile(models_path, create=True)
     key = ("providers", ctx.provider)
     existing = mf.get(*key)
-    ours = provider_block(ctx.defn, ctx.defn.models if all_models else [m])
+    ours = provider_block(ctx.defn, ctx.defn.models)
     # Keep the block byte-stable across repeated runs: every key we own is
     # always written, in the same order, and only unknown keys are carried
     # over by merge_preserve.
     merged = merge_preserve(ours, existing, whole=("models",))
     if ctx.dry_run:
         ctx.note(str(models_path), "would set", ".".join(key))
-    else:
-        ctx.stash.remember(ctx.agent, "models_block", existing)
-        mf.set(merged, *key)
-        if mf.save():
-            ctx.note(str(models_path), "set", ".".join(key))
-
-    sf = JsonFile(settings, create=True)
-    if ctx.dry_run:
         ctx.note(str(settings), "would set", "defaultProvider/defaultModel")
         return
+    models_path.parent.mkdir(parents=True, exist_ok=True)
+    ctx.mark_applied()
+    ctx.stash.remember(ctx.agent, "models_block", existing)
+    mf.set(merged, *key)
+    if mf.save():
+        ctx.note(str(models_path), "set", ".".join(key))
+
+    sf = JsonFile(settings, create=True)
 
     for leaf in LEAVES:
         if not ctx.stash.has(ctx.agent, leaf):
@@ -119,25 +117,18 @@ def apply(ctx: Context, directory: str, *, all_models: bool = True) -> None:
 
 def restore(ctx: Context, directory: str) -> None:
     settings, models_path = paths(directory)
+    if not restore_ready(ctx, str(settings)):
+        return
     if models_path.exists():
         mf = JsonFile(models_path)
-        had = ctx.stash.get(ctx.agent, "models_block")
-        if had is None:
-            mf.delete("providers", ctx.provider)
-        else:
-            mf.set(had, "providers", ctx.provider)
+        restore_key(mf, ctx, "models_block", "providers", ctx.provider)
         if mf.save():
             ctx.note(str(models_path), "restored")
 
     if settings.exists():
         sf = JsonFile(settings)
         for leaf in LEAVES:
-            if ctx.stash.has(ctx.agent, leaf):
-                old = ctx.stash.get(ctx.agent, leaf)
-                if old is None:
-                    sf.delete(leaf)
-                else:
-                    sf.set(old, leaf)
+            restore_key(sf, ctx, leaf, leaf)
         if sf.save():
             ctx.note(str(settings), "restored")
-    ctx.stash.forget(ctx.agent, *LEAVES, "models_block")
+    ctx.stash.forget(ctx.agent, "applied", *LEAVES, "models_block")

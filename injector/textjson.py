@@ -172,6 +172,24 @@ def _dump(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
+def _blank(text: str) -> bool:
+    """True when the text holds only whitespace and comments."""
+    p = _Parser(text)
+    p.trivia()
+    return p.i >= len(p.s)
+
+
+def _value(node: Node) -> Any:
+    """Node -> plain value, tolerating comments and trailing commas."""
+    if isinstance(node, Scalar):
+        return node.value
+    if isinstance(node, Obj):
+        return {m.key: _value(m.value) for m in node.members}
+    if isinstance(node, Arr):
+        return [_value(item) for item in node.items]
+    return None
+
+
 class JsonFile:
     """Surgical, comment-preserving reader/writer for a JSON(C) file."""
 
@@ -183,12 +201,16 @@ class JsonFile:
             if self.bom:
                 raw = raw[3:]
             self.src = raw.decode("utf-8")
+            if _blank(self.src):
+                # Installers create these files empty; an empty (or
+                # comment-only) config is an empty object, not a parse error.
+                self.src = "{}"
         else:
             if not create:
                 raise FileNotFoundError(str(self.path))
             self.bom = False
             self.src = "{}"
-        self.crlf = "\r\n" in self.src
+        self.eol = "\r\n" if "\r\n" in self.src else "\n"
         self.parse()
 
     def parse(self) -> None:
@@ -222,14 +244,7 @@ class JsonFile:
 
     def get(self, *path: str) -> Any:
         node = self.node(*path)
-        if node is None:
-            return None
-        if isinstance(node, Scalar):
-            return node.value
-        try:
-            return json.loads(self.src[node.start:node.end])
-        except json.JSONDecodeError:
-            return None
+        return None if node is None else _value(node)
 
     # -- editing ---------------------------------------------------------
     def _indent(self, pos: int) -> str:
@@ -268,21 +283,32 @@ class JsonFile:
             prefix.append(part)
         return node
 
+    def _comma_after(self, pos: int) -> int:
+        """Index of an existing trailing comma after pos, else -1."""
+        p = _Parser(self.src)
+        p.i = pos
+        p.trivia()
+        return p.i if p.i < len(p.s) and p.s[p.i] == "," else -1
+
     def _insert(self, obj: Obj, key: str, value: Any) -> None:
         text = _dump(value)
         if obj.members:
             last = obj.members[-1]
-            pos = last.value.end
+            comma = self._comma_after(last.value.end)
+            if comma >= 0:
+                # Insert after the trailing comma: the existing comma then
+                # separates it from the previous member. Inserting before
+                # the comma would drop the separator and break the file.
+                pos, sep = comma + 1, ""
+            else:
+                pos, sep = last.value.end, ","
             indent = self._indent(last.key_start) or (self._indent(obj.start) + "  ")
-            # A trailing comma after the last member means we append without
-            # another comma; otherwise ours must come first.
-            sep = "" if "," in self.src[pos : obj.end - 1] else ","
-            ins = f"{sep}\n{indent}{_dump(key)}: {text}"
+            ins = f"{sep}{self.eol}{indent}{_dump(key)}: {text}"
         else:
             pos = obj.start + 1  # just inside '{'
             parent_indent = self._indent(obj.start)
             indent = parent_indent + "  "
-            ins = f"\n{indent}{_dump(key)}: {text}\n{parent_indent}"
+            ins = f"{self.eol}{indent}{_dump(key)}: {text}{self.eol}{parent_indent}"
         self.src = self.src[:pos] + ins + self.src[pos:]
         self.parse()
 
@@ -290,7 +316,7 @@ class JsonFile:
         pos = arr.end - 1
         indent = self._indent(arr.start) + "  "
         sep = "," if arr.items else ""
-        ins = f"{sep}\n{indent}{_dump(value)}"
+        ins = f"{sep}{self.eol}{indent}{_dump(value)}"
         self.src = self.src[:pos] + ins + self.src[pos:]
         self.parse()
 

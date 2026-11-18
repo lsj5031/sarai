@@ -37,6 +37,12 @@ class Report:
 
 def plain(value: Any) -> Any:
     """Convert tomlkit/json containers into plain JSON-safe values."""
+    unwrap = getattr(value, "unwrap", None)
+    if callable(unwrap) and not isinstance(value, (str, int, float, bool)):
+        try:
+            value = unwrap()
+        except (AttributeError, TypeError, ValueError):
+            pass
     if isinstance(value, dict):
         return {str(k): plain(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):

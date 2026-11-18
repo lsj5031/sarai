@@ -9,11 +9,24 @@ from typing import Any
 import tomlkit
 
 
+BOM = b"\xef\xbb\xbf"
+
+
 class TomlFile:
     def __init__(self, path: str | Path, *, create: bool = False):
         self.path = Path(path)
+        self.bom = False
+        self.newline = "\n"
         if self.path.exists():
-            self.doc = tomlkit.parse(self.path.read_text(encoding="utf-8-sig"))
+            raw = self.path.read_bytes()
+            self.bom = raw.startswith(BOM)
+            text = raw.decode("utf-8-sig")
+            if "\r\n" in text:
+                # tomlkit works in LF; the file's own line endings are
+                # re-applied on save so an apply does not rewrite them.
+                self.newline = "\r\n"
+                text = text.replace("\r\n", "\n")
+            self.doc = tomlkit.parse(text)
         else:
             if not create:
                 raise FileNotFoundError(str(self.path))
@@ -65,9 +78,12 @@ class TomlFile:
 
     def save(self) -> bool:
         text = tomlkit.dumps(self.doc)
-        if self.path.exists() and self.path.read_text(encoding="utf-8-sig") == text:
+        if self.newline != "\n":
+            text = text.replace("\r\n", "\n").replace("\n", self.newline)
+        data = (BOM if self.bom else b"") + text.encode("utf-8")
+        if self.path.exists() and self.path.read_bytes() == data:
             return False
         tmp = self.path.with_name(self.path.name + ".tmp")
-        tmp.write_text(text, encoding="utf-8", newline="")
+        tmp.write_bytes(data)
         os.replace(tmp, self.path)
         return True

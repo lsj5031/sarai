@@ -8,7 +8,7 @@ from pathlib import Path
 from ..core import expand
 from ..definition import Definition, Model
 from ..textjson import JsonFile
-from .base import Context
+from .base import Context, restore_key, restore_ready
 
 MODEL_KEY = "sessionDefaultSettings.model"
 
@@ -57,7 +57,12 @@ def apply(ctx: Context) -> None:
     if m is None:
         return
     p = path()
+    our = [entry(ctx.defn, model) for model in ctx.defn.models]
+    if ctx.dry_run:
+        ctx.note(str(p), "would set", f"customModels ({len(our)}), {MODEL_KEY}")
+        return
     p.parent.mkdir(parents=True, exist_ok=True)
+    ctx.mark_applied()
     f = JsonFile(p, create=True)
     prefix = f"custom:{ctx.provider}/"
     keep = []
@@ -65,12 +70,8 @@ def apply(ctx: Context) -> None:
         if isinstance(item, dict) and str(item.get("id", "")).startswith(prefix):
             continue
         keep.append(item)
-    our = [entry(ctx.defn, model) for model in ctx.defn.models]
-    if ctx.dry_run:
-        ctx.note(str(p), "would set", f"customModels ({len(our)}), {MODEL_KEY}")
-        return
     ctx.stash.remember(ctx.agent, "customModels", f.get("customModels"))
-    ctx.stash.remember(ctx.agent, "model", f.get(MODEL_KEY))
+    ctx.stash.remember(ctx.agent, "model", f.get(*MODEL_KEY.split(".")))
     f.set(keep + our, "customModels")
     f.set(owned_id(ctx.defn, m), *MODEL_KEY.split("."))
     if f.save():
@@ -79,16 +80,14 @@ def apply(ctx: Context) -> None:
 
 def restore(ctx: Context) -> None:
     p = path()
+    if not restore_ready(ctx, str(p)):
+        return
     if not p.exists():
+        ctx.stash.forget(ctx.agent, "applied", "customModels", "model")
         return
     f = JsonFile(p)
-    for key, old in (("customModels", ctx.stash.get(ctx.agent, "customModels")),
-                     (MODEL_KEY, ctx.stash.get(ctx.agent, "model"))):
-        parts = key.split(".")
-        if old is None:
-            f.delete(*parts)
-        else:
-            f.set(old, *parts)
+    restore_key(f, ctx, "customModels", "customModels")
+    restore_key(f, ctx, "model", *MODEL_KEY.split("."))
     if f.save():
         ctx.note(str(p), "restored")
-    ctx.stash.forget(ctx.agent, "customModels", "model")
+    ctx.stash.forget(ctx.agent, "applied", "customModels", "model")

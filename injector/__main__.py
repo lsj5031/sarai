@@ -43,6 +43,9 @@ def main(argv: list[str] | None = None) -> int:
             report.error(f"{agent}: not supported (see --list)")
             continue
         choice = defn.agents.get(agent, AgentChoice())
+        if not args.restore and not choice.model:
+            report.error(f"{agent}: no model configured in the definition's [agents]")
+            continue
         ctx = Context(defn, agent, choice, stash, report, args.dry_run)
         apply, restore = REGISTRY[agent]
         try:
@@ -50,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:  # one bad agent must not stop the rest
             report.error(f"{agent}: {type(exc).__name__}: {exc}")
 
-    if not report.changes:
+    if not report.changes and not report.errors:
         print("nothing to do")
     for c in report.changes:
         tail = f"  ({c.detail})" if c.detail else ""

@@ -14,7 +14,7 @@ from pathlib import Path
 from ..core import expand, merge_preserve
 from ..definition import Definition, Model
 from ..textjson import JsonFile
-from .base import Context
+from .base import Context, restore_key, restore_ready
 
 PACKAGE = "aisdk:@ai-sdk/openai-compatible"
 
@@ -43,7 +43,7 @@ def variants(m: Model) -> dict:
     return {e: {"reasoningEffort": e} for e in efforts}
 
 
-def v1_model(defn: Definition, m: Model) -> dict:
+def v1_model(m: Model) -> dict:
     e: dict = {"name": m.name or m.id}
     if m.images:
         e["modalities"] = {"input": ["text", "image"], "output": ["text"]}
@@ -56,7 +56,7 @@ def v1_model(defn: Definition, m: Model) -> dict:
     return e
 
 
-def v2_model(defn: Definition, m: Model) -> dict:
+def v2_model(m: Model) -> dict:
     e: dict = {"name": m.name or m.id}
     if m.images:
         e["capabilities"] = {"tools": True, "input": ["text", "image"], "output": ["text"]}
@@ -73,7 +73,7 @@ def v2_model(defn: Definition, m: Model) -> dict:
 
 
 def block(defn: Definition, two: bool) -> dict:
-    models = [v2_model(defn, m) if two else v1_model(defn, m) for m in defn.models]
+    models = [v2_model(m) if two else v1_model(m) for m in defn.models]
     if two:
         return {"package": PACKAGE, "name": defn.provider,
                 "settings": {"baseURL": defn.v1, "apiKey": defn.api_key},
@@ -94,7 +94,6 @@ def apply(ctx: Context, *, agent_dir: str | None = None) -> None:
     if m is None:
         return
     p = config_path(directory(ctx.agent, agent_dir), ctx.agent)
-    p.parent.mkdir(parents=True, exist_ok=True)
     f = JsonFile(p, create=True)
     two = is_v2(f, ctx.choice.options)
     key = ("providers" if two else "provider", ctx.provider)
@@ -104,6 +103,9 @@ def apply(ctx: Context, *, agent_dir: str | None = None) -> None:
     if ctx.dry_run:
         ctx.note(str(p), "would set", ".".join(key))
         return
+    p.parent.mkdir(parents=True, exist_ok=True)
+    ctx.mark_applied()
+    ctx.stash.remember(ctx.agent, "section", key[0])
     ctx.stash.remember(ctx.agent, "provider_block", existing)
     ctx.stash.remember(ctx.agent, "model", f.get("model"))
     ctx.stash.remember(ctx.agent, "small_model", f.get("small_model"))
@@ -117,21 +119,21 @@ def apply(ctx: Context, *, agent_dir: str | None = None) -> None:
 
 def restore(ctx: Context, *, agent_dir: str | None = None) -> None:
     p = config_path(directory(ctx.agent, agent_dir), ctx.agent)
+    if not restore_ready(ctx, str(p)):
+        return
     if not p.exists():
+        ctx.stash.forget(ctx.agent, "applied", "section", "provider_block", "model", "small_model")
         return
     f = JsonFile(p)
-    had = ctx.stash.get(ctx.agent, "provider_block")
-    for section in ("provider", "providers"):
-        if had is None:
-            f.delete(section, ctx.provider)
-        elif f.has(section, ctx.provider):
-            f.set(had, section, ctx.provider)
+    # Restore into the section we wrote, so a v1/v2 migration in between does
+    # not put the old block back in the wrong place.
+    section = str(
+        ctx.stash.get(ctx.agent, "section")
+        or ("providers" if f.has("providers") else "provider")
+    )
+    restore_key(f, ctx, "provider_block", section, ctx.provider)
     for key in ("model", "small_model"):
-        old = ctx.stash.get(ctx.agent, key)
-        if old is None:
-            f.delete(key)
-        else:
-            f.set(old, key)
+        restore_key(f, ctx, key, key)
     if f.save():
         ctx.note(str(p), "restored")
-    ctx.stash.forget(ctx.agent, "provider_block", "model", "small_model")
+    ctx.stash.forget(ctx.agent, "applied", "section", "provider_block", "model", "small_model")

@@ -15,7 +15,7 @@ from .. import assets
 from ..core import expand, plain
 from ..definition import Definition, Model
 from ..tomlfile import TomlFile
-from .base import Context
+from .base import Context, restore_key, restore_ready
 
 CATALOG = "magpie-models.json"
 
@@ -93,15 +93,17 @@ def apply(ctx: Context) -> None:
     if m is None:
         return
     d = directory()
-    d.mkdir(parents=True, exist_ok=True)
     config = d / "config.toml"
-    f = TomlFile(config, create=True)
+    catalog = d / CATALOG
     table_path = ("model_providers", ctx.provider)
-    existing = f.get(*table_path)
     if ctx.dry_run:
         ctx.note(str(config), "would set", "[model_providers." + ctx.provider + "], model_provider, model")
-        ctx.note(str(d / CATALOG), "would write", f"{len(ctx.defn.models)} entries")
+        ctx.note(str(catalog), "would write", f"{len(ctx.defn.models)} entries")
         return
+    d.mkdir(parents=True, exist_ok=True)
+    ctx.mark_applied()
+    f = TomlFile(config, create=True)
+    existing = f.get(*table_path)
     ctx.stash.remember(ctx.agent, "provider_table", existing)
     for key in ("model_provider", "model", "model_catalog_json"):
         ctx.stash.remember(ctx.agent, key, f.get(key))
@@ -111,7 +113,6 @@ def apply(ctx: Context) -> None:
     f.set(CATALOG, "model_catalog_json")
     if f.save():
         ctx.note(str(config), "set", f"[model_providers.{ctx.provider}], model_provider, model")
-    catalog = d / CATALOG
     if not catalog.exists():
         ctx.stash.remember(ctx.agent, "catalog_absent", True)
     if write_catalog(ctx.defn, catalog):
@@ -120,20 +121,14 @@ def apply(ctx: Context) -> None:
 
 def restore(ctx: Context) -> None:
     d = directory()
+    if not restore_ready(ctx, str(d)):
+        return
     config = d / "config.toml"
     if config.exists():
         f = TomlFile(config)
-        had = ctx.stash.get(ctx.agent, "provider_table")
-        if had is None:
-            f.delete("model_providers", ctx.provider)
-        else:
-            f.set(had, "model_providers", ctx.provider)
+        restore_key(f, ctx, "provider_table", "model_providers", ctx.provider)
         for key in ("model_provider", "model", "model_catalog_json"):
-            old = ctx.stash.get(ctx.agent, key)
-            if old is None:
-                f.delete(key)
-            else:
-                f.set(old, key)
+            restore_key(f, ctx, key, key)
         if f.save():
             ctx.note(str(config), "restored")
     catalog = d / CATALOG
@@ -155,4 +150,5 @@ def restore(ctx: Context) -> None:
                 ctx.note(str(catalog), "restored")
             except (json.JSONDecodeError, OSError):
                 pass
-    ctx.stash.forget(ctx.agent, "provider_table", "model_provider", "model", "model_catalog_json", "catalog_absent")
+    ctx.stash.forget(ctx.agent, "applied", "provider_table", "model_provider", "model",
+                     "model_catalog_json", "catalog_absent")

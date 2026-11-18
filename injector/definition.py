@@ -27,11 +27,6 @@ class Model:
     input_modalities: list[str] = field(default_factory=list)
 
     @property
-    def short(self) -> str:
-        """The vendor model id (the part after the first '/')."""
-        return self.id.split("/", 1)[1] if "/" in self.id else self.id
-
-    @property
     def speaks_anthropic(self) -> bool:
         return "anthropic" in self.apis
 
@@ -128,5 +123,13 @@ def load(path: str | Path) -> Definition:
     if not models:
         raise SystemExit("definition has no [[models]] entries")
 
-    agents = {str(k): _as_choice(v) for k, v in (raw.get("agents") or {}).items()}
+    known = {m.id for m in models}
+    agents: dict[str, AgentChoice] = {}
+    for name, value in (raw.get("agents") or {}).items():
+        choice = _as_choice(value)
+        if not choice.model:
+            raise SystemExit(f"[agents].{name} needs a model id")
+        if choice.model not in known:
+            raise SystemExit(f"[agents].{name}: model {choice.model!r} is not in [[models]]")
+        agents[str(name)] = choice
     return Definition(provider, api_key, v1, root, models, agents)

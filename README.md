@@ -21,7 +21,9 @@ python -m injector --list
 The definition is a real TOML file (`defs/example.toml`); YAML/JSON are also
 accepted. `provider.id`, `gateway.base_url`, `gateway.api_key` and `[[models]]`
 are all yours. `base_url` is your Chat Completions / Responses endpoint; the
-root URL (without `/v1`) is used for Anthropic Messages.
+root URL (without `/v1`) is used for Anthropic Messages. Every `[agents]`
+entry must name a model from `[[models]]`; a typo fails the run instead of
+being silently skipped.
 
 Responses API is supported: Codex is always wired with `wire_api = "responses"`,
 and any model with `"responses"` in its `apis` is given Droid's `openai`
@@ -76,7 +78,10 @@ writes.
 - `registry.py` — agent id → shape driver. Adding an agent is one line here.
 
 Writes are idempotent: a second apply changes no bytes. A `--dry-run` writes
-nothing. `--restore` puts back the stashed values and removes files we made.
+nothing and creates no directories, including with `--restore`. `--restore`
+puts back the stashed values and removes files we made; it only acts on agents
+with a stash entry from the same checkout (`.state/stash.json`), so restoring
+twice, or restoring after `--no-stash`, is a no-op rather than a deletion.
 
 ## Porting the rest of magpie: feasibility
 
@@ -143,6 +148,11 @@ plugin-defined agent (arbitrary JS via Magpie's plugin runtime).
 - The Codex catalog carries Codex's own bundled instruction prompt
   (`injector/assets/codex_prompt.md`, from yetone/magpie, originally
   openai/codex Apache-2.0) because Codex rejects entries without it.
+- Comments inside a block the injector replaces (a provider block, the
+  `customModels` array) are not carried over; comments elsewhere, key order,
+  indentation and CRLF line endings are preserved.
+- `--restore` only acts on agents that have a stash entry from this checkout
+  (`.state/stash.json`); if the stash is gone it skips instead of guessing.
 - No YAML round-trip editor yet — needed for Goose, Hermes, Raycast, dsh,
   etc. (`ruamel.yaml` is the intended dependency).
 
