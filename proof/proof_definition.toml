@@ -1,0 +1,18 @@
+[provider]
+id = "mygw"
+
+[gateway]
+base_url = "http://127.0.0.1:18765/v1"
+api_key  = "PROOF-KEY-123"
+
+[[models]]
+id = "proof/echo-model"
+name = "Proof Echo Model"
+context = 128000
+output = 4096
+reasoning = false
+apis = ["chat"]
+
+[agents]
+codex = "proof/echo-model"
+droid = "proof/echo-model"

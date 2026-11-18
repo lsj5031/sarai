@@ -1,0 +1,40 @@
+# Your own definition. Point gateway at YOUR endpoint; nothing here comes
+# from magpie. `provider.id` is the name written into each agent's config.
+
+[provider]
+id = "mygw"
+
+[gateway]
+# Chat Completions / Responses endpoint. The injector derives:
+#   v1   = base_url (unless it already ends in /v1)
+#   root = base_url without the trailing /v1  (for Anthropic Messages)
+base_url = "http://127.0.0.1:3425/v1"
+api_key  = "sk-your-gateway-key"
+
+[[models]]
+id = "deepseek/deepseek-v4-pro"
+name = "DeepSeek V4 Pro"
+context = 200000
+output = 16384
+reasoning = true
+efforts = ["low", "medium", "high"]
+default_effort = "medium"
+apis = ["chat", "responses"]
+images = false
+
+[[models]]
+id = "anthropic/claude-opus-5"
+name = "Claude Opus 5"
+context = 200000
+output = 16384
+reasoning = true
+efforts = ["low", "medium", "high"]
+apis = ["anthropic"]
+
+# Map an agent id to the model id it should start on. A table form allows
+# per-agent overrides later (e.g. mode = "profile" for Codex).
+[agents]
+pi = "deepseek/deepseek-v4-pro"
+droid = "deepseek/deepseek-v4-pro"
+codex = "deepseek/deepseek-v4-pro"
+opencode = "deepseek/deepseek-v4-pro"
