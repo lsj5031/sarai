@@ -1,3 +1,0 @@
-tomlkit>=0.13
-# Optional: only needed if you write the definition as YAML instead of TOML.
-PyYAML>=6.0

@@ -6,8 +6,8 @@ use toml_edit::{DocumentMut, Item, Table, TableLike};
 
 use crate::{Context, Definition, Model, write_atomic};
 
-const CATALOG: &str = "magpie-models.json";
-const PROMPT: &str = include_str!("../injector/assets/codex_prompt.md");
+const CATALOG: &str = "sarai-models.json";
+const PROMPT: &str = include_str!("../assets/codex_prompt.md");
 const LEVELS: [&str; 6] = ["minimal", "low", "medium", "high", "xhigh", "max"];
 const KEYS: [&str; 4] = [
     "model_provider",

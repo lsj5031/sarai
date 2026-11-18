@@ -100,7 +100,7 @@ pub fn load(path: &Path) -> Result<Definition> {
         provider: raw
             .provider
             .and_then(|p| p.id)
-            .unwrap_or_else(|| "magpie".into()),
+            .unwrap_or_else(|| "sarai".into()),
         models: raw.models,
         agents: raw.agents,
     })

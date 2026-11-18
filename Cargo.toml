@@ -1,11 +1,15 @@
 [package]
-name = "agent-config-injector"
-version = "0.1.0"
+name = "sarai"
+version = "0.2.0"
 edition = "2024"
+description = "Point coding agents at your own provider and models by editing their config files."
+repository = "https://github.com/lsj5031/sarai"
+readme = "README.md"
+license = "MIT"
 publish = false
 
 [[bin]]
-name = "injector"
+name = "sarai"
 path = "src/main.rs"
 
 [dependencies]

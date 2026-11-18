@@ -1,11 +1,12 @@
 # Your own definition. Point gateway at YOUR endpoint; nothing here comes
-# from magpie. `provider.id` is the name written into each agent's config.
+# from an agent vendor. `provider.id` is the name written into each agent's
+# config.
 
 [provider]
 id = "mygw"
 
 [gateway]
-# Chat Completions / Responses endpoint. The injector derives:
+# Chat Completions / Responses endpoint. Sarai derives:
 #   v1   = base_url (unless it already ends in /v1)
 #   root = base_url without the trailing /v1  (for Anthropic Messages)
 base_url = "http://127.0.0.1:3425/v1"

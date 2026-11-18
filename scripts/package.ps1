@@ -12,8 +12,8 @@ try {
     if ($LASTEXITCODE) { throw 'Release build failed' }
     $metadata = cargo metadata --no-deps --format-version 1 --locked @flags | ConvertFrom-Json
     if ($LASTEXITCODE) { throw 'Cannot locate build directory' }
-    $exe = if ($target -match 'windows') { 'injector.exe' } else { 'injector' }
-    $stage = Join-Path ([IO.Path]::GetTempPath()) ("injector-package-" + [guid]::NewGuid())
+    $exe = if ($target -match 'windows') { 'sarai.exe' } else { 'sarai' }
+    $stage = Join-Path ([IO.Path]::GetTempPath()) ("sarai-package-" + [guid]::NewGuid())
     $null = New-Item "$stage/defs" -ItemType Directory -Force
     try {
         Copy-Item "$($metadata.target_directory)/$target/release/$exe" $stage
@@ -21,9 +21,10 @@ try {
         $example = git show HEAD:defs/example.toml
         if ($LASTEXITCODE) { throw 'Cannot read committed example definition' }
         [IO.File]::WriteAllLines("$stage/defs/example.toml", [string[]]$example)
-        Copy-Item README.md $stage
+        Copy-Item README.md, LICENSE, THIRD_PARTY_NOTICES.md $stage
+        Copy-Item licenses "$stage/licenses" -Recurse
         $null = New-Item dist -ItemType Directory -Force
-        $zip = "dist/agent-config-injector-$target.zip"
+        $zip = "dist/sarai-$target.zip"
         Compress-Archive -Path "$stage/*" -DestinationPath $zip -Force
         Get-Item $zip | Select-Object FullName, Length
     } finally { Remove-Item -LiteralPath $stage -Recurse -Force }

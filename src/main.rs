@@ -31,7 +31,7 @@ const AGENTS: &[&str] = &[
 #[derive(Parser)]
 #[command(
     version,
-    about = "Inject your own provider and models into coding agents' config files."
+    about = "Sarai: point coding agents at your own provider and models by editing their config files."
 )]
 struct Args {
     /// Definition file (.toml, .yaml or .json); defaults to defs/example.toml

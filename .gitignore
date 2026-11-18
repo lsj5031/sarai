@@ -1,7 +1,8 @@
-__pycache__/
-*.py[cod]
 .state/
-proof/gateway.log
 *.tmp
 /target/
 /dist/
+
+# Local tool state and real provider definitions (may contain API keys).
+/.freebuff/
+/defs/my-provider.toml
