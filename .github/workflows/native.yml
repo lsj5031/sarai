@@ -1,0 +1,54 @@
+name: Native CLI
+
+on: [push, pull_request, workflow_dispatch]
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - runner: macos-15
+            target: aarch64-apple-darwin
+    env:
+      TARGET: ${{ matrix.target }}
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Select stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup override set stable
+          rustc -vV | grep -Fx "host: $TARGET"
+      - name: Build and test
+        run: |
+          cargo test --release --locked
+          cargo build --release --locked
+      - name: Package portable CLI
+        run: |
+          mkdir -p "$RUNNER_TEMP/package/defs"
+          cp target/release/injector README.md "$RUNNER_TEMP/package/"
+          cp defs/example.toml "$RUNNER_TEMP/package/defs/"
+          tar -C "$RUNNER_TEMP/package" -czf "injector-$TARGET.tar.gz" injector README.md defs
+      - name: Test extracted executable
+        run: |
+          mkdir "$RUNNER_TEMP/extracted"
+          tar -xzf "injector-$TARGET.tar.gz" -C "$RUNNER_TEMP/extracted"
+          export INJECTOR_TEST_BIN="$RUNNER_TEMP/extracted/injector"
+          (cd "$RUNNER_TEMP/extracted" && ./injector --list && ./injector --dry-run)
+          python3 test_integration.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: injector-${{ matrix.target }}
+          path: injector-${{ matrix.target }}.tar.gz
+          if-no-files-found: error

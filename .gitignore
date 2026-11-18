@@ -3,3 +3,5 @@ __pycache__/
 .state/
 proof/gateway.log
 *.tmp
+/target/
+/dist/

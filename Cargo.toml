@@ -1,0 +1,23 @@
+[package]
+name = "agent-config-injector"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "injector"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+glob = "0.3"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+serde_yaml = "0.9"
+tempfile = "3"
+toml = { version = "1.1", features = ["preserve_order"] }
+toml_edit = { version = "0.25", features = ["serde"] }
+
+[profile.release]
+strip = true

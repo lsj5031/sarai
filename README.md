@@ -8,15 +8,41 @@ The definition is yours (`defs/example.toml`); the code is a small, portable
 core plus per-"shape" drivers. Magpie was used only as a reference for the
 file formats and the preservation rules (MIT licence).
 
-## Quick start
+## Quick start: portable executable
+
+Extract the ZIP for your OS and architecture into a writable directory.
+**No Python, Rust, package installation, or network access is needed to run
+the injector.** Edit `defs/example.toml` to point at your own provider, then
+run these commands from the extracted folder:
 
 ```powershell
-python -m pip install -r requirements.txt
-python -m injector -d defs/example.toml
-python -m injector -d defs/example.toml --dry-run
-python -m injector -d defs/example.toml --restore
-python -m injector --list
+.\injector.exe --list
+.\injector.exe -d defs/example.toml --dry-run
+.\injector.exe -d defs/example.toml
+.\injector.exe -d defs/example.toml --restore
 ```
+
+Keep the same definition, agent home and `.state` directory for restore.
+The native CLI stores originals in `.state/stash.json` **beside the
+executable**, not in the current directory. Pass `--state-dir PATH` on
+both apply and restore to choose another location (for example, an existing
+Python checkout's `.state`). Protect that directory and your definition:
+both may contain API keys. The injector configures agents; it doesn't
+install them or provide a gateway.
+
+### Build or test from source
+
+With a current stable Rust toolchain, `cargo build --release --locked`
+produces `target/release/injector` (`injector.exe` on Windows). On Windows,
+`./scripts/package.ps1` builds the host-target ZIP into `dist/`. Pass
+`-Offline` when Cargo's dependencies are already cached. Build separately
+for each target platform; the Windows MSVC build links the C runtime statically.
+
+Run `cargo test --locked` for the editors' unit tests. To exercise the compiled
+CLI against the original integration scenarios, set `INJECTOR_TEST_BIN` to
+the absolute executable path and run `python test_integration.py` from this
+checkout (standard library only). The Python implementation remains available
+for comparison: install `requirements.txt` and use `python -m injector`.
 
 The definition is a real TOML file (`defs/example.toml`); YAML/JSON are also
 accepted. `provider.id`, `gateway.base_url`, `gateway.api_key` and `[[models]]`
@@ -39,8 +65,7 @@ both `/v1/responses` and `/v1/chat/completions`.
 | `codex` | `~/.codex/config.toml`, `magpie-models.json` | `[model_providers.<id>]`, `model_provider`, `model`, `model_reasoning_effort` (from `default_effort`), `model_catalog_json` |
 | `opencode` (aliases `mimocode`, `deveco`) | `~/.config/opencode/opencode.json(c)` | v1 `provider.<id>` or v2 `providers.<id>` block; `model`, `small_model` |
 
-The aliases only reuse the shape; their real directories come from the
-registry (`PI_DIRS`, `opencode.directory()`).
+The aliases reuse the driver but target their own config directories.
 
 Codex uses the selected model's `default_effort` if it is among the model's
 supported levels. Otherwise it uses the lowest supported level, or clears
@@ -73,6 +98,14 @@ writes.
 
 ## How it works
 
+The native implementation lives in `src/`: `main.rs` handles CLI dispatch,
+atomic writes and the stash; `definition.rs` reads TOML/YAML/JSON;
+`jsonfile.rs` edits JSONC by source span; `json_agents.rs` implements the
+Pi, Droid and OpenCode families; `codex.rs` uses `toml_edit` for Codex and
+embeds the catalog prompt at build time.
+
+Python reference modules:
+
 - `definition.py` — loads your definition into a neutral `Definition`.
 - `textjson.py` — JSON/JSONC editor. Parses just enough to find exact value
   spans, then splices text: comments, key order, indentation and CRLF survive.
@@ -85,7 +118,7 @@ writes.
 Writes are idempotent: a second apply changes no bytes. A `--dry-run` writes
 nothing and creates no directories, including with `--restore`. `--restore`
 puts back the stashed values and removes files we made; it only acts on agents
-with a stash entry from the same checkout (`.state/stash.json`), so restoring
+with a stash entry in the selected state directory, so restoring
 twice, or restoring after `--no-stash`, is a no-op rather than a deletion.
 
 ## Porting the rest of magpie: feasibility
@@ -156,8 +189,8 @@ plugin-defined agent (arbitrary JS via Magpie's plugin runtime).
 - Comments inside a block the injector replaces (a provider block, the
   `customModels` array) are not carried over; comments elsewhere, key order,
   indentation and CRLF line endings are preserved.
-- `--restore` only acts on agents that have a stash entry from this checkout
-  (`.state/stash.json`); if the stash is gone it skips instead of guessing.
+- `--restore` only acts on agents that have a stash entry; if the stash
+  is gone it skips instead of guessing.
 - No YAML round-trip editor yet — needed for Goose, Hermes, Raycast, dsh,
   etc. (`ruamel.yaml` is the intended dependency).
 

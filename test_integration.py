@@ -1,14 +1,19 @@
 import json
 import os
+import subprocess
 import tempfile
 from pathlib import Path
 
-from injector import core
-from injector.__main__ import main
-from injector.definition import load as load_definition
-
 home = Path(tempfile.mkdtemp())
-core.STATE = home / ".state"
+native = os.environ.get("INJECTOR_TEST_BIN")
+if native:
+    def main(args):
+        return subprocess.run([native, "--state-dir", str(home / ".state"), *args]).returncode
+else:
+    from injector import core
+    from injector.__main__ import main
+    from injector.definition import load as load_definition
+    core.STATE = home / ".state"
 os.environ["CODEX_HOME"] = str(home / ".codex")
 os.environ["FACTORY_HOME_OVERRIDE"] = str(home)
 os.environ["USERPROFILE"] = str(home)
@@ -151,11 +156,15 @@ bad = Path(tempfile.mkdtemp()) / "bad.toml"
 bad.write_text(
     '[provider]\nid = "mygw"\n\n[gateway]\nbase_url = "http://127.0.0.1:1/v1"\n\n'
     '[[models]]\nid = "m/one"\n\n[agents]\npi = "m/typo"\n', encoding="utf-8")
-try:
-    load_definition(bad)
-except SystemExit as exc:
-    assert "m/typo" in str(exc), exc
+if native:
+    result = subprocess.run([native, "-d", str(bad), "--dry-run"], capture_output=True, text=True)
+    assert result.returncode and "m/typo" in result.stderr, result
 else:
-    raise AssertionError("a model id typo was accepted")
+    try:
+        load_definition(bad)
+    except SystemExit as exc:
+        assert "m/typo" in str(exc), exc
+    else:
+        raise AssertionError("a model id typo was accepted")
 
 print("integration OK")
